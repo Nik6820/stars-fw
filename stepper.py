@@ -1,46 +1,33 @@
+from rpi_hardware_pwm import HardwarePWM
 import RPi.GPIO as GPIO
-import time
-import threading
 
-PUL = 17
 DIR = 27
+PWM_CHANNEL = 0    # 0 = GPIO 18 (или GPIO 12), 1 = GPIO 19 (или GPIO 13)
 
-STEPS_PER_REV = 200 * 8   # 200 шагов * микрошаг 1/8 (как на DIP-переключателях)
-MIN_RPM = 1
-MAX_RPM = 150
+STEPS_PER_REV = 200 * 32   # 200 шагов * микрошаг 1/32
+MIN_RPM, MAX_RPM = 1, 150
 
-rpm = 30                  # стартовая скорость, об/мин
+def rpm_to_hz(rpm):
+    return rpm * STEPS_PER_REV / 60
 
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(PUL, GPIO.OUT, initial=GPIO.LOW)
-GPIO.setup(DIR, GPIO.OUT, initial=GPIO.LOW)
+GPIO.setup(DIR, GPIO.OUT, initial=GPIO.HIGH)   # GPIO.LOW для обратного направления
 
-def read_speed():
-    global rpm
-    while True:
-        text = input("Новая скорость (об/мин): ")
-        try:
-            value = float(text)
-        except ValueError:
-            print("Нужно число")
-            continue
-        rpm = max(MIN_RPM, min(MAX_RPM, value))
-        print(f"Скорость: {rpm} об/мин")
-
-threading.Thread(target=read_speed, daemon=True).start()
-
-GPIO.output(DIR, GPIO.HIGH)   # направление; GPIO.LOW для обратного
-time.sleep(0.01)
+pwm = HardwarePWM(pwm_channel=PWM_CHANNEL, hz=rpm_to_hz(30), chip=0)
+pwm.start(50)      # скважность 50%
 
 try:
     while True:
-        # половина периода импульса в секундах
-        delay = 60 / (rpm * STEPS_PER_REV) / 2
-        GPIO.output(PUL, GPIO.HIGH)
-        time.sleep(delay)
-        GPIO.output(PUL, GPIO.LOW)
-        time.sleep(delay)
+        try:
+            rpm = max(MIN_RPM, min(MAX_RPM, float(input("Новая скорость (об/мин): "))))
+        except ValueError:
+            print("Нужно число")
+            continue
+        pwm.change_frequency(rpm_to_hz(rpm))
+        print(f"Скорость: {rpm} об/мин ({rpm_to_hz(rpm):.0f} Гц)")
 except KeyboardInterrupt:
     pass
 finally:
+    pwm.stop()
     GPIO.cleanup()
+
